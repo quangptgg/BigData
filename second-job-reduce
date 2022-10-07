@@ -1,0 +1,96 @@
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.TreeMap;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+Hình 1: Kết quả lệnh chạy job mapreduce và hiển thị output của
+job mapreduce
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.MultipleInputs;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import parquet.it.unimi.dsi.fastutil.Arrays;
+public class ReduceJoin {
+public static class AgesMapper extends Mapper <Object, Text, Text,
+Text>
+{
+public void map(Object key, Text value, Context context)
+throws IOException, InterruptedException
+{
+String record = value.toString();
+String[] parts = record.split(",");
+for (String t: parts)
+if (t!=parts[0])
+{context.write(new Text(t), new Text(parts[0]));}
+} }
+public static class ReduceJoinReducer extends Reducer <Text, Text,
+Text, Text>
+{
+private TreeMap<Double,String> tmap2;
+public void setup(Context context) throws IOException,
+InterruptedException
+{
+tmap2 = new TreeMap<Double,String>();
+}
+public void reduce(Text key, Iterable<Text> values, Context context)
+throws IOException, InterruptedException
+{
+double max=0.0;
+double min=0.0;
+double total = 0.0;
+int count=0;
+for (Text x : values)
+{
+Float t=Float.parseFloat(x.toString());
+total+=t;
+count++;
+if(max==0)
+{ max=t;}
+else if (t>max)
+{ max=t;}
+if(min==0)
+ { min=t;}
+else if (t<min)
+{ min=t;}
+}
+String a=key.toString();
+if (tmap2.isEmpty())
+{tmap2.put(total/count, a);}
+else if (tmap2.firstKey()==total/count)
+{
+String type1=tmap2.get(tmap2.firstKey());
+tmap2.remove(tmap2.firstKey());
+tmap2.put(total/count, type1 + "," + a); }
+else
+{tmap2.put(total/count, a);}
+Text str=new Text("[Max: " +max+" Min: " +min+" Avg: "
++total/count+"]");
+context.write(key, new Text(str.toString()));
+}
+public void cleanup(Context context) throws IOException,
+InterruptedException {
+double avg = tmap2.firstKey();
+String type= tmap2.get(avg);
+Text str1=new Text(" Game types with lowest avg age of
+"+avg+":"); context.write(new Text(str1.toString()),new
+Text(type));
+} }
+public static void main(String[] args) throws Exception {
+Configuration conf = new Configuration();
+Job job = new Job(conf, "Reduce-side join");
+job.setJarByClass(ReduceJoin.class);
+job.setReducerClass(ReduceJoinReducer.class);
+job.setOutputKeyClass(Text.class);
+job.setOutputValueClass(Text.class);
+MultipleInputs.addInputPath(job, new
+Path(args[0]),TextInputFormat.class, AgesMapper.class);
+Path outputPath = new Path(args[1]);
+FileOutputFormat.setOutputPath(job, outputPath);
+outputPath.getFileSystem(conf).delete(outputPath);
+System.exit(job.waitForCompletion(true) ? 0 : 1); }
+}
